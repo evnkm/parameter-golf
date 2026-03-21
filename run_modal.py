@@ -9,8 +9,6 @@ to train_gpt_shared.py (or any other file) are picked up immediately on
 the next `modal run` — no rebuild or git push needed.
 """
 
-import pathlib
-
 import modal
 
 app = modal.App("parameter-golf")
@@ -30,15 +28,14 @@ image = (
         "kernels",
         "setuptools",
         "typing-extensions==4.15.0",
+        "zstandard",
     )
-)
-
-local_project = modal.Mount.from_local_dir(
-    pathlib.Path(__file__).parent,
-    remote_path="/root/parameter-golf",
-    condition=lambda path: not any(
-        part in path for part in [".git", "__pycache__", ".venv", "node_modules"]
-    ),
+    .add_local_dir(
+        ".",
+        remote_path="/root/parameter-golf",
+        ignore=[".git", "__pycache__", ".venv", "node_modules", "*.pyc",
+                "records", "research", "logs", "*.pt", "*.ptz"],
+    )
 )
 
 data_vol = modal.Volume.from_name("parameter-golf-data", create_if_missing=True)
@@ -48,7 +45,6 @@ data_vol = modal.Volume.from_name("parameter-golf-data", create_if_missing=True)
     image=image,
     gpu="H100:8",
     timeout=30 * 60,
-    mounts=[local_project],
     volumes={"/data": data_vol},
 )
 def train():
@@ -92,7 +88,8 @@ def train():
         stderr=sys.stderr,
         env=env,
     )
-    sys.exit(result.returncode)
+    if result.returncode != 0:
+        raise RuntimeError(f"Training failed with exit code {result.returncode}")
 
 
 @app.local_entrypoint()
