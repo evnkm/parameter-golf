@@ -3,7 +3,13 @@ Modal launcher for parameter-golf training on 8x H100 SXM GPUs.
 
 Usage:
     modal run run_modal.py
+
+Your local project directory is mounted into the container, so any edits
+to train_gpt_shared.py (or any other file) are picked up immediately on
+the next `modal run` — no rebuild or git push needed.
 """
+
+import pathlib
 
 import modal
 
@@ -13,7 +19,6 @@ image = (
     modal.Image.from_registry(
         "nvidia/cuda:12.4.1-devel-ubuntu22.04", add_python="3.11"
     )
-    .apt_install("git")
     .pip_install(
         "torch",
         "numpy",
@@ -26,9 +31,14 @@ image = (
         "setuptools",
         "typing-extensions==4.15.0",
     )
-    .run_commands(
-        "cd /root && git clone -b evan https://github.com/evnkm/parameter-golf.git",
-    )
+)
+
+local_project = modal.Mount.from_local_dir(
+    pathlib.Path(__file__).parent,
+    remote_path="/root/parameter-golf",
+    condition=lambda path: not any(
+        part in path for part in [".git", "__pycache__", ".venv", "node_modules"]
+    ),
 )
 
 data_vol = modal.Volume.from_name("parameter-golf-data", create_if_missing=True)
@@ -38,6 +48,7 @@ data_vol = modal.Volume.from_name("parameter-golf-data", create_if_missing=True)
     image=image,
     gpu="H100:8",
     timeout=30 * 60,
+    mounts=[local_project],
     volumes={"/data": data_vol},
 )
 def train():
